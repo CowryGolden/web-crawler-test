@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 r'''
-    多线程方式
+    多进程多线程方式（修改上一个版本【spider-mmjpg-mp.py】中的缺陷）
     多线程爬取[清纯妹子图片网](http://www.mmjpg.com/)指定页的内容；具体分析如下：
     整体分析网站后（打开一个具体页面看网页源码），确定爬取的思路是任意网站分页→图集分页→图片下载页，用链接说明的话，就是：
         第一步：获取这个网址的response，[分页内容](http://www.mmjpg.com/home/2)，解析后提取图集的地址
@@ -16,13 +16,16 @@ r'''
 import os, time, random
 import requests
 from lxml import html
+import threading
 from multiprocessing import Pool
 import socket
+
 
 # 获取当前路径
 def _current_path():
     return os.path.abspath('.')
 
+# 获取图集总数
 def get_page_number(num):
     # time.sleep(1) #不能爬太频繁
     #构建函数，用来查找该页内所有图片集的详细地址。目前一页包含15组套图，所以应该返回包含15个链接的序列。
@@ -41,7 +44,7 @@ def get_page_number(num):
     return urls
     #将序列作为函数结果返回
 
-
+# 获取图集标题
 def get_image_title(url):
     #现在进入到套图的详情页面了，现在要把套图的标题和图片总数提取出来
     response = requests.get(url).content
@@ -50,6 +53,7 @@ def get_image_title(url):
     #需要注意的是，xpath返回的结果都是序列，所以需要使用[0]进行定位
     return image_title
 
+# 获取一个图集中的图片总数
 def get_image_amount(url):
     #这里就相当于重复造轮子了，因为基本的代码逻辑跟上一个函数一模一样。想要简单的话就是定义一个元组，然后把获取标题、获取链接、获取图片总数的3组函数的逻辑揉在一起，最后将结果作为元组输出。不过作为新手教程，还是以简单易懂为好吧。想挑战的同学可以试试写元组模式
     response = requests.get(url).content
@@ -58,7 +62,7 @@ def get_image_amount(url):
     # a标签的倒数第二个区块就是图片集的最后一页，也是图片总数，所以直接取值就可以
     return image_amount
 
-
+# 获取一个图集中所有图片的详细URL
 def get_image_detail_website(url):
     #这里还是重复造轮子。
     response = requests.get(url).content
@@ -94,33 +98,39 @@ def header(referer):
 # 下载单张图片
 def download_image(imgurl, filename, info):
     print('下载图集（%s）>> 第%s/%s张，其进程ID为：%s，父进程为：%s。' % (info[0], info[1], info[2], os.getpid(), os.getppid()))
-    start1 = time.time() 
+    start1 = time.time()
     with open(filename, 'wb+') as f:
-        header = {'Referer': imgurl, 'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/63.0.3239.132 Safari/537.36'}    # 加上此header反爬虫才能下载正常的图片
+        # header = {'Referer': imgurl, 'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/63.0.3239.132 Safari/537.36'}    # 加上此header反爬虫才能下载正常的图片
+        # header = {'Referer': imgurl, 'User-Agent':'Mozilla/5.0 (Windows NT 10.0; WOW64; Trident/7.0; rv:11.0) like Gecko'}
+        header = {'Referer': imgurl, 'User-Agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.8; rv:49.0) Gecko/20100101 Firefox/49.0'}
         print('正在下载图片：图集（%s）第%s/%s张，' % (info))
         f.write(requests.get(imgurl,headers=header).content)
-        time.sleep(random.random() * 10)       
+        time.sleep(random.random() * 10)    # 不能爬太频繁，为避免被远程机的反爬虫机制和谐掉，加入随机延时
     end1 = time.time()
     print('下载图集（%s）>> 第%s/%s张，运行耗时：%.2f 秒' % (info[0], info[1], info[2], (end1 - start1)))
 
 
 # 批量下载图集
-def download_images_batch(pool, image_title, image_detail_websites):
+def download_images_batch(image_title, image_detail_websites):
     print('下载图集（%s），其进程ID为：%s，父进程为：%s。' % (image_title, os.getpid(), os.getppid()))
     start = time.time()
-    # time.sleep(1) #不能爬太频繁
+    threads = []
     #将图片保存到本地。传入的两个参数是图片的标题，和下载地址序列
     num = 1
     amount = len(image_detail_websites)
     #获取图片总数
     for imgurl in image_detail_websites:
         info = (image_title, num, amount)
-        print('下载图集（%s）>> 第%s/%s张，其进程ID为：%s，父进程为：%s。' % (image_title, num, amount, os.getpid(), os.getppid()))                
         filename = os.path.join(os.path.join(_current_path(), 'images'), '%s%s.jpg' % (image_title, num))
         print('将下载图片：%s第%s/%s张，放入下载队列' % (image_title, num, amount))
-        # download_image(imgurl, filename)
-        pool.apply_async(download_image, args=(imgurl, filename, info))    # 此种方式是将每个图集的单个图片的下载作为子进程交由线程池管理，因此不会被远程机的反爬虫机制和谐掉
+        t = threading.Thread(target=download_image, args=(imgurl, filename, info))    # 使用多线程方式下载单张图片，使用多进程下载图集
+        threads.append(t)
         num += 1
+    for thread in threads:
+        time.sleep(random.random() * 5)
+        thread.start()
+    for thread in threads:    # join的作用：主线程等待子线程全部结束后才结束，因此不和start写在一起
+        thread.join()
     end = time.time()
     print('下载图集（%s），运行耗时：%.2f 秒' % (image_title, (end - start)))    
 
@@ -129,15 +139,14 @@ def download_images_batch(pool, image_title, image_detail_websites):
 if __name__ == '__main__':
     page_number = input('请输入需要爬取的页码：')
     print('开始下载图片，父进程ID为：%s。' % os.getpid())
-    p = Pool(8)
+    pool = Pool(4)
     socket.setdefaulttimeout(20)    # 设置整个socket层的超时时间为20秒，后续文件中如果再使用到socket，不必再设置
-    for link in get_page_number(page_number):
-        # download_images_batch(get_image_title(link), get_image_detail_website(link))
-        # p.apply_async(download_images_batch, args=(get_image_title(link), get_image_detail_website(link)))    # 该种方式仅仅将图集下载放到了线程池中，而每个图集中的单个图片下载不是多线程执行的，因此会被远程机的反爬虫机制和谐掉
-        download_images_batch(p, get_image_title(link), get_image_detail_website(link))    # 此种方式是将每个图集的单个图片的下载作为子进程交由线程池管理，因此不会被远程机的反爬虫机制和谐掉
-    
+    for link in get_page_number(page_number):        
+        # 使用线程下载单张图片，使用多进程下载每个图集，为避免被远程机的反爬虫机制和谐掉，在下载单张图片时加入随机延时
+        pool.apply_async(func=download_images_batch, args=(get_image_title(link), get_image_detail_website(link)))
+        
     print('等待所有子进程下载图片完成 ...')
-    p.close()
-    p.join()
+    pool.close()
+    pool.join()
     print('所有子进程下载图片完成，下载图片结束。')
 
