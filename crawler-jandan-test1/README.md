@@ -30,6 +30,7 @@
 从这个代码可以看出来，图片地址被一个 js 函数代替了，也就是说图片地址是由这个jandan_load_img(this)函数来获取并加载的，所以，现在的关键是，需要到 JS 文件中查找这个函数的意义。
 
 >* js 文件解读
+
 通过在每个 js 文件中搜索`jandan_load_img`，最后可以在一个地址类似于`http://cdn.jandan.net/static/min/1d694f08895d377af4835a24f06090d0.29100001.js`的文件中找到这个函数的定义，将压缩的 JS 代码格式化查看，可以看到具体的定义如下片段：
 ```
 function jandan_load_img(b) {
